@@ -1,0 +1,90 @@
+import cv2
+import numpy as np
+
+# Initialize camera (0 for default webcam / Pi Camera)
+cap = cv2.VideoCapture(0)
+
+# Minimum contour area to filter noise
+MIN_AREA = 500
+
+def classify_object(w, h):
+    aspect_ratio = w / float(h)
+
+    # Nut → roughly square
+    if 0.8 <= aspect_ratio <= 1.2:
+        return "Nut"
+    else:
+        return "Bolt"
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Resize for consistency (optional)
+    frame = cv2.resize(frame, (640, 480))
+    original = frame.copy()
+
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # Blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Thresholding
+    _, thresh = cv2.threshold(blurred, 100, 255, cv2.THRESH_BINARY_INV)
+
+    # Morphological operations
+    kernel = np.ones((5, 5), np.uint8)
+    morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
+
+    # Find contours
+    contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+
+        if area < MIN_AREA:
+            continue
+
+        # Bounding box
+        x, y, w, h = cv2.boundingRect(cnt)
+
+        # Classification
+        label = classify_object(w, h)
+
+        # Center point
+        cx = int(x + w / 2)
+        cy = int(y + h / 2)
+
+        # Normalize coordinates (0 to 1)
+        h_frame, w_frame = frame.shape[:2]
+        norm_x = cx / w_frame
+        norm_y = cy / h_frame
+
+        # Draw bounding box
+        color = (0, 255, 0) if label == "Nut" else (255, 0, 0)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+
+        # Draw center
+        cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
+
+        # Label text
+        text = f"{label}"
+        cv2.putText(frame, text, (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # Console output
+        print(f"{label} detected at ({norm_x:.2f}, {norm_y:.2f})")
+
+    # Show results
+    cv2.imshow("Fastener Detection", frame)
+    cv2.imshow("Threshold", morph)
+
+    # Exit on 'q'
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
